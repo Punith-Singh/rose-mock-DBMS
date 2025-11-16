@@ -1,0 +1,1881 @@
+import React, { useState, useEffect, createContext, useContext, useMemo, useRef } from 'react';
+import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, RadialBarChart, RadialBar, PolarAngleAxis, ReferenceLine } from 'recharts';
+import { Home, BarChart2, MessageSquare, Utensils, User, LogOut, Settings, Bell, Mic, Volume2, Send, Droplet, Zap, Fish, Leaf, Drumstick, Brain, Sun, Moon, Calendar, Download, Target, Plus, Trash2, X, ChevronDown, CheckCircle, Search, Clock, PlusCircle, Lock, Mail, CloudSun, Cookie, AlertTriangle, Eye, EyeOff, Lightbulb, StopCircle, Edit } from 'lucide-react';
+
+// --- Global Context for State Management ---
+const AppContext = createContext();
+
+// --- Main App Component ---
+export default function App() {
+  const [auth, setAuth] = useState({ isLoggedIn: false, token: null });
+  const [user, setUser] = useState(null); // Start as null
+  const [goals, setGoals] = useState(null); // Start as null
+  const [meals, setMeals] = useState([]); // Start as empty
+  const [currentPage, setCurrentPage] = useState('dashboard');
+  const [theme, setTheme] = useState('light');
+  const [notification, setNotification] = useState(null);
+  const [isLoadingApp, setIsLoadingApp] = useState(false); // To prevent flashing login screen
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+  }, [theme]);
+  
+  // --- Notification Helper ---
+  const showNotification = (message, type = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => {
+      setNotification(null);
+    }, 3000);
+  };
+  
+  // --- API Helper Function ---
+  const api = async (url, method, body = null) => {
+    const headers = new Headers({
+      'Content-Type': 'application/json',
+    });
+
+    if (auth.token) {
+      headers.append('Authorization', `Bearer ${auth.token}`);
+    }
+    
+    const options = {
+      method,
+      headers,
+    };
+
+    if (body) {
+      options.body = JSON.stringify(body);
+    }
+    
+    try {
+      // Assuming a local dev server, replace with your actual API base URL
+      const response = await fetch(`http://localhost:3001${url}`, options);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'API call failed');
+      }
+      // Handle 204 No Content for delete requests
+      if (response.status === 204) {
+        return null;
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('API Error:', error.message);
+      showNotification(error.message, 'error');
+      throw error; // Re-throw to stop calling function
+    }
+  };
+
+  // --- API-like Functions (Now Real) ---
+  
+  const loadAppData = async (token) => {
+    // Temporarily set auth state to make the API call
+    // We update state *functionally* to ensure we use the new token
+    setAuth({ isLoggedIn: true, token: token });
+    
+    try {
+      // Use a temporary auth object for the API call
+      // This is a workaround for api helper not having the new token yet
+      const headers = new Headers({
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      });
+      const response = await fetch(`http://localhost:3001/api/me`, { headers });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'API call failed');
+      }
+      const data = await response.json();
+      
+      setUser(data.user);
+      setGoals(data.goals);
+      setMeals(data.meals);
+      setCurrentPage('dashboard');
+      showNotification('Welcome back, ' + data.user.name + '!');
+    } catch (error) {
+      // If load fails, log them out
+      setAuth({ isLoggedIn: false, token: null });
+    }
+  };
+
+  const handleLogin = async (email, password) => {
+    try {
+      const data = await api('/api/login', 'POST', { email, password });
+      // We got a token, now load all the user's data
+      await loadAppData(data.token);
+    } catch (error) {
+      console.log('Login failed');
+      throw error; // <-- Re-throw error so LoginRegister can catch it
+    }
+  };
+
+  const handleRegister = async (regData) => {
+    try {
+      // API call to register
+      const data = await api('/api/register', 'POST', regData);
+      // On success, just return the data. We will NOT log the user in.
+      return data;
+    } catch (error) {
+      console.log('Registration failed');
+      throw error; // Re-throw error so LoginRegister can catch it
+    }
+  };
+
+  const handleLogout = () => {
+    setAuth({ isLoggedIn: false, token: null });
+    setUser(null);
+    setGoals(null);
+    setMeals([]);
+    showNotification('Logged out successfully.', 'info');
+  };
+
+  const handleForgotPassword = async (email) => {
+    try {
+      const data = await api('/api/forgot-password', 'POST', { email });
+      return data; // Return success data
+    } catch (error) {
+      console.log('Forgot password request failed');
+      throw error; // Re-throw for the component to catch
+    }
+  };
+
+  const handleResetPassword = async (email, token, newPassword) => {
+    try {
+      const data = await api('/api/reset-password', 'POST', { email, token, newPassword });
+      return data; // Return success data
+    } catch (error) {
+      console.log('Reset password request failed');
+      throw error; // Re-throw for the component to catch
+    }
+  };
+  
+  const addMeal = async (meal) => {
+    try {
+      const newMeal = await api('/api/meals', 'POST', { ...meal }); // Date is now added in the modal
+      setMeals(prevMeals => [...prevMeals, newMeal]);
+      showNotification('Meal added!');
+    } catch (error) {
+      console.log('Add meal failed');
+    }
+  };
+
+  // --- NEW: Update Meal ---
+  const handleUpdateMeal = async (mealId, meal) => {
+    try {
+      const updatedMeal = await api(`/api/meals/${mealId}`, 'PUT', meal);
+      setMeals(prevMeals => prevMeals.map(m => (m.id === mealId ? updatedMeal : m)));
+      showNotification('Meal updated!');
+    } catch (error) {
+      console.log('Update meal failed');
+    }
+  };
+
+  const deleteMeal = async (id) => {
+    try {
+      await api(`/api/meals/${id}`, 'DELETE');
+      setMeals(prevMeals => prevMeals.filter(meal => meal.id !== id));
+      showNotification('Meal removed.', 'info');
+    } catch (error) {
+      console.log('Delete meal failed');
+    }
+  };
+
+  const updateProfile = async (updatedUser) => {
+    try {
+      const data = await api('/api/profile', 'PUT', updatedUser);
+      setUser(data);
+      showNotification('Profile updated!');
+    } catch(error) {
+      console.log('Profile update failed');
+    }
+  };
+
+  const updateGoals = async (updatedGoals) => {
+    try {
+      const data = await api('/api/goals', 'PUT', updatedGoals);
+      setGoals(data);
+      showNotification('Goals updated!');
+    } catch(error) {
+      console.log('Goal update failed');
+    }
+  };
+  
+  // --- NEW: Delete Account ---
+  const handleDeleteAccount = async () => {
+    try {
+      await api('/api/me', 'DELETE');
+      showNotification('Account deleted successfully.', 'info');
+      // Log out manually
+      handleLogout();
+    } catch (error) {
+      console.log('Delete account failed');
+    }
+  };
+
+  // --- Utility Functions (Memoization) ---
+  // --- BUG FIX: Use local date, not UTC ---
+  const getTodayString = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = (today.getMonth() + 1).toString().padStart(2, '0');
+    const day = today.getDate().toString().padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const todayTotals = useMemo(() => {
+    if (!meals) return { calories: 0, protein: 0, carbs: 0, fat: 0 };
+    const today = getTodayString();
+    return meals
+      .filter(meal => meal.date.startsWith(today)) // Use startsWith as date is now DateTime
+      .reduce((acc, meal) => {
+        acc.calories += meal.calories;
+        acc.protein += meal.protein;
+        acc.carbs += meal.carbs;
+        acc.fat += meal.fat;
+        return acc;
+      }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+  }, [meals, getTodayString]); // <-- Add getTodayString as dependency
+
+
+  const contextValue = {
+    auth,
+    user,
+    goals,
+    meals,
+    todayTotals,
+    theme,
+    currentPage,
+    handleLogin,
+    handleRegister,
+    handleLogout,
+    addMeal,
+    handleUpdateMeal, // <-- ADDED
+    deleteMeal,
+    updateProfile,
+    updateGoals,
+    handleDeleteAccount, // <-- ADDED
+    handleForgotPassword,
+    handleResetPassword,
+    setCurrentPage,
+    setTheme,
+    showNotification,
+    getTodayString, // <-- ADDED
+  };
+
+  // Show a loading spinner or nothing while user/goals are null
+  const isLoading = !user || !goals;
+
+  return (
+    <AppContext.Provider value={contextValue}>
+      <div className={`relative min-h-screen ${theme === 'light' ? 'bg-gray-50' : 'bg-gray-900'} text-gray-900 dark:text-white font-inter`}>
+        <BackgroundAnimation />
+        
+        {notification && <NotificationBanner message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
+        
+        <div className="relative z-10">
+          {!auth.isLoggedIn ? (
+            <LoginRegister />
+          ) : (
+            // Wait for user and goals to be loaded before rendering app
+            isLoading ? (
+              <div className="flex items-center justify-center min-h-screen">
+                <Brain className="w-12 h-12 text-blue-500 animate-spin drop-shadow-[0_0_8px_rgba(59,130,246,0.8)]" />
+              </div>
+            ) : (
+              <div className="flex">
+                <DesktopSidebar />
+                <div className="flex-1 flex flex-col lg:ml-64">
+                  <MobileHeader />
+                  <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-hidden">
+                    {/* Page transition wrapper */}
+                    <div key={currentPage} className="animate-fade-in">
+                      {currentPage === 'dashboard' && <Dashboard />}
+                      {currentPage === 'tracker' && <MealTracker />}
+                      {currentPage === 'chatbot' && <Chatbot />}
+                      {currentPage === 'profile' && <ProfileSettings />}
+                    </div>
+                  </main>
+                </div>
+                <MobileBottomNav />
+              </div>
+            )
+          )}
+        </div>
+      </div>
+    </AppContext.Provider>
+  );
+}
+
+// --- 1. Navigation Components (Refactored) ---
+function DesktopSidebar() {
+  const { user, handleLogout, currentPage, setCurrentPage } = useContext(AppContext);
+  const userInitials = user.name.split(' ').map(n => n[0]).join('');
+
+  const navItems = [
+    { name: 'Dashboard', icon: Home, page: 'dashboard' },
+    { name: 'Meal Tracker', icon: Utensils, page: 'tracker' },
+    { name: 'AI Coach', icon: MessageSquare, page: 'chatbot' },
+    { name: 'Profile', icon: User, page: 'profile' },
+  ];
+
+  return (
+    <nav className="hidden lg:flex flex-col fixed top-0 left-0 w-64 h-full bg-white dark:bg-gray-800 border-r dark:border-gray-700 shadow-lg z-30">
+      <div className="flex items-center h-20 px-6 border-b dark:border-gray-700">
+        <Brain className="text-blue-500 w-8 h-8 mr-2" />
+        <span className="text-xl font-bold text-gray-900 dark:text-white">NutriPal AI</span>
+      </div>
+      
+      <div className="flex-1 p-4 space-y-2">
+        {navItems.map(item => (
+          <button
+            key={item.page}
+            onClick={() => setCurrentPage(item.page)}
+            className={`relative flex items-center w-full px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${currentPage === item.page ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+          >
+            {currentPage === item.page && <div className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-1 bg-white rounded-r-full"></div>}
+            <item.icon className="w-5 h-5 mr-3" />
+            {item.name}
+          </button>
+        ))}
+      </div>
+      
+      <div className="p-4 border-t dark:border-gray-700">
+        <button
+          onClick={handleLogout}
+          className="flex items-center w-full px-4 py-3 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200"
+        >
+          <LogOut className="w-5 h-5 mr-3" />
+          Logout
+        </button>
+      </div>
+    </nav>
+  );
+}
+
+function MobileHeader() {
+  const { user, currentPage } = useContext(AppContext);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const userInitials = user.name.split(' ').map(n => n[0]).join('');
+
+  const pageTitle = useMemo(() => {
+    switch(currentPage) {
+      case 'dashboard': return 'Dashboard';
+      case 'tracker': return 'Meal Tracker';
+      case 'chatbot': return 'AI Coach';
+      case 'profile': return 'Profile & Settings';
+      default: return 'NutriPal AI';
+    }
+  }, [currentPage]);
+
+  return (
+    <header className="lg:hidden sticky top-0 flex items-center justify-between h-16 px-4 bg-white/80 dark:bg-gray-800/80 backdrop-blur-md border-b dark:border-gray-700 z-20">
+      <h1 className="text-lg font-bold text-gray-900 dark:text-white">{pageTitle}</h1>
+      <div className="flex items-center gap-2">
+        <button className="relative text-gray-500 dark:text-gray-400 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">
+          <Bell className="w-6 h-6" />
+          <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white dark:border-gray-800"></span>
+        </button>
+        <button onClick={() => setCurrentPage('profile')} className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-bold">
+            {userInitials}
+          </div>
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function MobileBottomNav() {
+  const { currentPage, setCurrentPage } = useContext(AppContext);
+  const navItems = [
+    { name: 'Dashboard', icon: Home, page: 'dashboard' },
+    { name: 'Tracker', icon: Utensils, page: 'tracker' },
+    { name: 'AI Coach', icon: MessageSquare, page: 'chatbot' },
+    { name: 'Profile', icon: User, page: 'profile' },
+  ];
+
+  return (
+    <nav className="lg:hidden fixed bottom-0 left-0 w-full bg-white/80 dark:bg-gray-800/80 backdrop-blur-md border-t dark:border-gray-700 z-20 flex justify-around items-center h-16">
+      {navItems.map(item => (
+        <button
+          key={item.page}
+          onClick={() => setCurrentPage(item.page)}
+          className={`flex flex-col items-center justify-center p-2 rounded-lg transition-all duration-200 ${currentPage === item.page ? 'text-blue-500' : 'text-gray-500 dark:text-gray-400'}`}
+        >
+          <item.icon className="w-6 h-6" />
+          <span className="text-xs font-medium">{item.name}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+// --- NEW: Markdown Renderer ---
+function MarkdownRenderer({ text }) {
+  const formattedText = useMemo(() => {
+    if (!text) return '';
+    // Basic bold (**) and italic (*) parser
+    return text
+      .replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>') // Bold + Italic
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')     // Bold
+      .replace(/\*(.*?)\*/g, '<em>$1</em>');                // Italic
+  }, [text]);
+
+  return <p className="text-sm" dangerouslySetInnerHTML={{ __html: formattedText }} />;
+}
+
+
+// --- 2. Chatbot Component ---
+function Chatbot() {
+  const { user, goals, todayTotals, addMeal, showNotification } = useContext(AppContext);
+  const [messages, setMessages] = useState([
+    { role: 'bot', text: `Hi ${user.name}! I'm NutriPal, your AI nutrition coach. How can I help you today? You can ask me to log meals, give you suggestions, or create a plan.` }
+  ]);
+  const [userInput, setUserInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const chatEndRef = useRef(null);
+  const recognitionRef = useRef(null);
+  
+  const [voices, setVoices] = useState([]);
+  const [isSpeakingId, setIsSpeakingId] = useState(null); // <-- NEW: Track active speech
+  
+  const systemPrompt = `You are 'NutriPal', a friendly, expert nutrition chatbot.
+You are talking to ${user.name}, who is ${user.age} years old, ${user.height}cm tall, and weighs ${user.weight}kg.
+Their goal is to ${user.goal} weight.
+Their daily targets are: ${goals.calories} kcal, ${goals.protein}g protein, ${goals.carbs}g carbs, and ${goals.fat}g fat.
+Today, they have consumed: ${todayTotals.calories} kcal, ${todayTotals.protein}g protein, ${todayTotals.carbs}g carbs, and ${todayTotals.fat}g fat.
+Respond in clear, simple markdown. Do not use complex markdown like lists or tables. Use **bold** for key terms (like **Calories** or **Protein**).
+
+Your tasks:
+1.  **Be Conversational & Encouraging:** Use their name. Keep replies concise.
+2.  **Analyze User Goals:** If they ask for a plan (e.g., "lose 5kg in 2 months"), create a high-level, sample plan.
+3.  **Give Meal Suggestions:** Base suggestions on their remaining calories and macros.
+4.  **Log Meals:** If a user says "Log 2 eggs and a banana for breakfast", you MUST respond with a JSON object in this *exact* format:
+    {"action": "log_meal", "meal": {"name": "2 eggs and a banana", "calories": 230, "protein": 13, "carbs": 28, "fat": 10, "type": "breakfast"}}
+    (Estimate macros if not provided). For any other request, just respond with natural text.
+5.  **Answer Questions:** Provide nutritional tips and answer questions based on science.
+6.  **Contextual Memory:** Remember the last few messages (they will be provided in the chat history).
+7.  **DO NOT:** Give medical advice. Defer to a doctor.`;
+
+  useEffect(() => {
+    const loadVoices = () => {
+      const browserVoices = window.speechSynthesis.getVoices();
+      setVoices(browserVoices);
+    };
+    
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    loadVoices(); // Initial load
+  }, []);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const callGeminiAPI = async (chatHistory) => {
+    setIsLoading(true);
+    
+    const payload = {
+      chatHistory: chatHistory,
+      systemPrompt: { 
+        parts: [{ text: systemPrompt }]
+      },
+    };
+    
+    let response;
+    try {
+      response = await fetch(`http://localhost:3001/api/gemini`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+         throw new Error(`API call failed with status ${response.status}`);
+      }
+      
+    } catch (error) {
+      console.error('Error fetching from /api/gemini:', error);
+      setIsLoading(false);
+      setMessages(prev => [...prev, { role: 'bot', text: "Sorry, I'm having trouble connecting to the server. Please make sure it's running." }]);
+      return;
+    }
+
+    const result = await response.json();
+    let botResponse = "Sorry, I couldn't generate a response.";
+    
+    try {
+      if (!result.candidates || result.candidates.length === 0) {
+        console.error('API Error: No candidates returned', result);
+        if (result.promptFeedback) {
+          console.error('Prompt Feedback:', result.promptFeedback);
+          botResponse = `I can't respond to that due to safety settings. Reason: ${result.promptFeedback.blockReason}`;
+        } else {
+          botResponse = "Sorry, I received an empty response from the AI.";
+        }
+      } else {
+        botResponse = result.candidates[0].content.parts[0].text;
+      }
+    } catch (e) {
+      console.error('Error parsing Gemini response:', e, result);
+    }
+    
+    try {
+      const jsonResponse = JSON.parse(botResponse);
+      if (jsonResponse.action === 'log_meal' && jsonResponse.meal) {
+        await addMeal({...jsonResponse.meal, date: new Date().toISOString()});
+        const confirmation = `Got it! I've logged "**${jsonResponse.meal.name}**" (${jsonResponse.meal.calories} kcal) for you. Anything else?`;
+        setMessages(prev => [...prev, { role: 'bot', text: confirmation }]);
+      } else {
+        setMessages(prev => [...prev, { role: 'bot', text: botResponse }]);
+      }
+    } catch (e) {
+      setMessages(prev => [...prev, { role: 'bot', text: botResponse }]);
+    }
+    setIsLoading(false);
+  };
+  
+  const handleSendMessage = (e) => {
+    e.preventDefault();
+    if (!userInput.trim()) return;
+    const newUserMessage = { role: 'user', text: userInput };
+    const newChatHistory = [...messages, newUserMessage];
+    setMessages(newChatHistory);
+    setUserInput('');
+    callGeminiAPI(newChatHistory.slice(-10));
+  };
+
+  const handleToggleListen = () => {
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        showNotification('Voice recognition is not supported in your browser.', 'error');
+        return;
+      }
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = 'en-US';
+      recognitionRef.current.onstart = () => setIsListening(true);
+      recognitionRef.current.onend = () => setIsListening(false);
+      recognitionRef.current.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setUserInput(transcript);
+        const newUserMessage = { role: 'user', text: transcript };
+        const newChatHistory = [...messages, newUserMessage];
+        setMessages(newChatHistory);
+        setUserInput('');
+        callGeminiAPI(newChatHistory.slice(-10));
+      };
+      recognitionRef.current.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        showNotification('Speech recognition error: ' + event.error, 'error');
+        setIsListening(false);
+      };
+      recognitionRef.current.start();
+    }
+  };
+
+  // --- UPDATED: Toggle Speak / Stop ---
+  const handleSpeak = (text, id) => {
+    if (!window.speechSynthesis || voices.length === 0) {
+      showNotification('Text-to-speech is not ready or not supported.', 'error');
+      return;
+    }
+
+    if (isSpeakingId === id) {
+      // Currently speaking this message, so stop
+      window.speechSynthesis.cancel();
+      setIsSpeakingId(null);
+      return;
+    }
+
+    // If speaking another message, cancel it first
+    if (isSpeakingId !== null) {
+      window.speechSynthesis.cancel();
+    }
+
+    // Start new speech
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-US';
+
+    let selectedVoice = null;
+
+    if (user.gender === 'male') {
+      selectedVoice = voices.find(v => v.lang === 'en-US' && (v.name.includes('Google US English Male') || v.name.includes('David') || v.name.includes('Male')));
+    } else {
+      selectedVoice = voices.find(v => v.lang === 'en-US' && (v.name.includes('Google US English Female') || v.name.includes('Zira') || v.name.includes('Female')));
+    }
+
+    if (!selectedVoice) {
+      selectedVoice = voices.find(v => v.lang === 'en-US');
+    }
+    
+    utterance.voice = selectedVoice;
+    
+    // Set state trackers
+    utterance.onstart = () => setIsSpeakingId(id);
+    utterance.onend = () => setIsSpeakingId(null);
+    utterance.onerror = () => setIsSpeakingId(null); // Ensure state resets on error
+
+    window.speechSynthesis.speak(utterance);
+  };
+  
+  const handleSmartReply = (text) => {
+    const newUserMessage = { role: 'user', text: text };
+    const newChatHistory = [...messages, newUserMessage];
+    setMessages(newChatHistory);
+    callGeminiAPI(newChatHistory.slice(-10));
+  };
+  
+  return (
+    // --- UPDATED: New Chat UI ---
+    <div className="flex flex-col h-[calc(100vh-14rem)] lg:h-[calc(100vh-6rem)]">
+      <div className="flex-1 overflow-y-auto p-4 bg-white dark:bg-gray-800 rounded-lg shadow-inner space-y-4">
+        {messages.map((msg, index) => (
+          <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-xs md:max-w-md lg:max-w-lg p-3 rounded-xl shadow-sm ${msg.role === 'user' ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'}`}>
+              
+              {/* --- NEW: Use MarkdownRenderer --- */}
+              <MarkdownRenderer text={msg.text} />
+              
+              {msg.role === 'bot' && (
+                <button onClick={() => handleSpeak(msg.text, index)} className="mt-2 text-blue-500 dark:text-blue-400 opacity-70 hover:opacity-100 transition-opacity">
+                  {/* --- NEW: Toggle Icon --- */}
+                  {isSpeakingId === index ? <StopCircle className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+        {isLoading && (
+          <div className="flex justify-start">
+            <div className="p-3 rounded-xl bg-gray-100 dark:bg-gray-700 shadow-sm">
+              <div className="flex space-x-1">
+                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce-fast"></div>
+                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce-medium"></div>
+                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce-slow"></div>
+              </div>
+            </div>
+          </div>
+        )}
+        <div ref={chatEndRef} />
+      </div>
+      <div className="mt-4 pt-4 border-t dark:border-gray-700">
+        <div className="flex gap-2 mb-2">
+          <button onClick={() => handleSmartReply("What's my status for today?")} className="text-xs px-3 py-1 bg-gray-100 dark:bg-gray-700 text-blue-600 dark:text-blue-300 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-all">Today's Status</button>
+          <button onClick={() => handleSmartReply("Suggest a healthy snack.")} className="text-xs px-3 py-1 bg-gray-100 dark:bg-gray-700 text-blue-600 dark:text-blue-300 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-all">Suggest Snack</button>
+          <button onClick={() => handleSmartReply("What should I have for dinner?")} className="text-xs px-3 py-1 bg-gray-100 dark:bg-gray-700 text-blue-600 dark:text-blue-300 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-all">Dinner Idea</button>
+        </div>
+        <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleToggleListen}
+            className={`flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-full transition-all ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'}`}
+          >
+            <Mic className="w-5 h-5" />
+          </button>
+          <input
+            type="text"
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            placeholder="Type your message or use mic..."
+            className="flex-1 px-4 py-2 border rounded-full bg-white dark:bg-gray-700 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+          />
+          <button
+            type="submit"
+            className="flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-full bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-400 transition-all"
+            disabled={isLoading || !userInput.trim()}
+          >
+            <Send className="w-5 h-5" />
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// --- 3. Dashboard Component ---
+function Dashboard() {
+  const { user, goals, meals, todayTotals, setCurrentPage, theme, getTodayString } = useContext(AppContext);
+  
+  // Prepare chart data
+  const calorieProgress = Math.min((todayTotals.calories / goals.calories) * 100, 100);
+  const caloriesLeft = Math.max(0, goals.calories - todayTotals.calories);
+  
+  // State for animation
+  const [calorieData, setCalorieData] = useState([{ name: 'Calories', value: 0, fill: '#3b82f6' }]);
+
+  useEffect(() => {
+    // Animate the radial chart on load
+    const timer = setTimeout(() => {
+      setCalorieData([{ name: 'Calories', value: calorieProgress, fill: '#3b82f6' }])
+    }, 300); // 300ms delay to allow page transition
+    return () => clearTimeout(timer);
+  }, [calorieProgress]);
+
+
+  const macroData = [
+    { name: 'Protein', value: todayTotals.protein, goal: goals.protein, icon: Drumstick, color: 'text-green-500', bg: 'bg-green-500' },
+    { name: 'Carbs', value: todayTotals.carbs, goal: goals.carbs, icon: Leaf, color: 'text-yellow-500', bg: 'bg-yellow-500' },
+    { name: 'Fat', value: todayTotals.fat, goal: goals.fat, icon: Droplet, color: 'text-red-500', bg: 'bg-red-500' },
+  ];
+
+  // Get last 7 days of data
+  const weeklyData = useMemo(() => {
+    const data = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(Date.now() - i * 86400000);
+      
+      // Use the same logic as getTodayString for consistency
+      const year = date.getFullYear();
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const day = date.getDate().toString().padStart(2, '0');
+      const dateString = `${year}-${month}-${day}`;
+
+      const dayMeals = meals.filter(m => m.date.startsWith(dateString));
+      const totalCals = dayMeals.reduce((acc, m) => acc + m.calories, 0);
+      data.push({
+        name: date.toLocaleDateString('en-US', { weekday: 'short' }),
+        Calories: totalCals,
+      });
+    }
+    return data;
+  }, [meals, goals.calories]);
+
+  const today = getTodayString();
+  const recentMeals = meals
+    .filter(meal => meal.date.startsWith(today))
+    .sort((a, b) => new Date(b.date) - new Date(a.date)) // Show most recent first
+    .slice(0, 3);
+    
+  const healthTip = "Your fat intake was a bit high yesterday. Try incorporating more leafy greens or lean protein sources today!";
+  const userInitials = user.name.split(' ').map(n => n[0]).join('');
+
+  return (
+    <div className="space-y-6 pb-16 lg:pb-0">
+      
+      {/* New Greeting Header */}
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h2 className="text-4xl font-extrabold text-gray-900 dark:text-white tracking-tight">
+            <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-cyan-500 dark:from-blue-400 dark:to-cyan-400">
+              Good morning, {user.name.split(' ')[0]}!
+            </span>
+          </h2>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">Ready to seize the day?</p>
+        </div>
+         <div className="flex items-center gap-4">
+           <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 hidden sm:flex items-center gap-3">
+             <Lightbulb className="w-6 h-6 text-yellow-500" />
+             <div>
+               <p className="text-sm font-semibold text-gray-900 dark:text-white">Daily Tip</p>
+               <p className="text-xs text-gray-500 dark:text-gray-400">Drink 2 glasses of water before lunch 💧</p>
+             </div>
+           </div>
+          <button onClick={() => setCurrentPage('profile')} className="w-12 h-12 rounded-full bg-blue-500 text-white flex items-center justify-center text-xl font-bold shadow-md">
+            {userInitials}
+          </button>
+        </div>
+      </div>
+      
+      {/* Main Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* Left Column (Main) */}
+        <div className="lg:col-span-2 space-y-6">
+          
+          {/* Today's Progress Card */}
+          <div className="p-6 bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 transition-all duration-300 hover:shadow-lg">
+            <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Today's Progress</h3>
+            <div className="flex flex-col sm:flex-row items-center justify-around gap-6">
+              <div className="w-48 h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RadialBarChart
+                    cx="50%"
+                    cy="50%"
+                    innerRadius="70%"
+                    outerRadius="90%"
+                    barSize={20}
+                    data={calorieData} // Use animated state
+                    startAngle={90}
+                    endAngle={-270}
+                  >
+                    <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
+                    <RadialBar
+                      background
+                      dataKey="value"
+                      cornerRadius={10}
+                      fill="#3b82f6"
+                      className="transition-all duration-1000 ease-out"
+                    />
+                    <text
+                      x="50%"
+                      y="50%"
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      className="text-4xl font-bold fill-current dark:fill-white"
+                    >
+                      {Math.round(todayTotals.calories)}
+                    </text>
+                     <text
+                      x="50%"
+                      y="65%"
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      className="text-sm fill-gray-500 dark:fill-gray-400"
+                    >
+                      Kcal
+                    </text>
+                  </RadialBarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="text-center sm:text-left">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Calories Eaten</p>
+                <p className="text-4xl font-bold text-gray-900 dark:text-white">{Math.round(todayTotals.calories)}</p>
+                <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <p className="text-sm text-blue-600 dark:text-blue-300">Remaining</p>
+                  <p className="text-2xl font-bold text-blue-500">{caloriesLeft} <span className="text-lg">kcal</span></p>
+                </div>
+              </div>
+              
+              {/* Macro Stats */}
+              <div className="flex flex-row sm:flex-col gap-4 mt-4 sm:mt-0">
+                {macroData.map(macro => (
+                  <div key={macro.name} className="flex items-center gap-2">
+                    <macro.icon className={`w-5 h-5 ${macro.color}`} />
+                    <div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">{macro.name}</p>
+                      <p className="text-md font-bold text-gray-900 dark:text-white">{Math.round(macro.value)}g</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          
+          {/* Weekly Chart */}
+          <div className="p-6 bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 transition-all duration-300 hover:shadow-lg">
+            <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Weekly Calorie Trend</h3>
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={weeklyData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.2} />
+                  <XAxis dataKey="name" fontSize={12} tickLine={false} axisLine={false} className="dark:fill-gray-300" />
+                  <YAxis fontSize={12} tickLine={false} axisLine={false} className="dark:fill-gray-300" />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: theme === 'light' ? '#fff' : '#1f2937',
+                      borderColor: theme === 'light' ? '#e5e7eb' : '#374151',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Legend />
+                  <ReferenceLine y={goals.calories} label="Goal" strokeDasharray="3 3" stroke="#f87171" />
+                  <Bar dataKey="Calories" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+          
+        </div>
+        
+        {/* Right Column (Secondary) */}
+        <div className="lg:col-span-1 space-y-6">
+          
+          {/* Macro Goals */}
+          <div className="p-6 bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 transition-all duration-300 hover:shadow-lg">
+            <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Macro Goals</h3>
+            <div className="space-y-4">
+              {macroData.map(macro => (
+                <MacroProgressCard key={macro.name} {...macro} />
+              ))}
+            </div>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="p-6 bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 transition-all duration-300 hover:shadow-lg">
+            <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Quick Add</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <QuickAddButton label="Breakfast" icon={Sun} onClick={() => setCurrentPage('tracker')} />
+              <QuickAddButton label="Lunch" icon={CloudSun} onClick={() => setCurrentPage('tracker')} />
+              <QuickAddButton label="Dinner" icon={Moon} onClick={() => setCurrentPage('tracker')} />
+              <QuickAddButton label="Snack" icon={Cookie} onClick={() => setCurrentPage('tracker')} />
+            </div>
+          </div>
+          
+          {/* Recent Meals */}
+          <div className="p-6 bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 transition-all duration-300 hover:shadow-lg">
+            <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Recent Meals Today</h3>
+            <div className="space-y-3">
+              {recentMeals.length > 0 ? (
+                recentMeals.map(meal => (
+                  <RecentMealItem key={meal.id} meal={meal} />
+                ))
+              ) : (
+                <p className="text-sm text-gray-500 dark:text-gray-400">No meals logged yet today.</p>
+              )}
+               <button onClick={() => setCurrentPage('tracker')} className="w-full mt-3 text-sm px-4 py-2 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 text-blue-500 dark:text-blue-400 font-semibold rounded-lg transition-colors">
+                See all
+              </button>
+            </div>
+          </div>
+
+          {/* Health Tip */}
+          <div className="p-6 bg-green-50 dark:bg-green-900/20 rounded-xl shadow-md border border-green-200 dark:border-green-700 transition-all duration-300 hover:shadow-lg">
+             <div className="flex items-center gap-2 mb-2">
+               <Leaf className="w-5 h-5 text-green-500" />
+               <h3 className="text-lg font-semibold text-green-800 dark:text-green-300">Health Tip</h3>
+             </div>
+            <p className="text-sm text-green-700 dark:text-green-300">{healthTip}</p>
+          </div>
+          
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- 4. MealTracker Component ---
+function MealTracker() {
+  const { meals, deleteMeal, getTodayString } = useContext(AppContext);
+  const [showModal, setShowModal] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(getTodayString());
+  
+  // --- NEW: State for editing a meal ---
+  const [mealToEdit, setMealToEdit] = useState(null);
+
+  const filteredMeals = meals.filter(meal => meal.date.startsWith(selectedDate));
+  
+  const getMealsByType = (type) => {
+    return filteredMeals.filter(meal => meal.type === type);
+  }
+  
+  // --- NEW: Handlers for opening modal ---
+  const handleOpenAddModal = () => {
+    setMealToEdit(null); // Make sure we're not editing
+    setShowModal(true);
+  };
+
+  const handleOpenEditModal = (meal) => {
+    setMealToEdit(meal); // Set the meal to edit
+    setShowModal(true);
+  };
+  
+  const mealTypes = ['breakfast', 'lunch', 'dinner', 'snack'];
+  const totals = filteredMeals.reduce((acc, meal) => {
+        acc.calories += meal.calories;
+        acc.protein += meal.protein;
+        acc.carbs += meal.carbs;
+        acc.fat += meal.fat;
+        return acc;
+      }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+
+  return (
+    <div className="space-y-6 pb-16 lg:pb-0">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Meal Tracker</h2>
+        <div className="flex items-center gap-4 mt-4 sm:mt-0">
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="p-2 border rounded-lg bg-white dark:bg-gray-700 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <button onClick={handleOpenAddModal} className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg font-semibold hover:bg-blue-600 shadow transition-colors">
+            <PlusCircle className="w-5 h-5" />
+            Add Meal
+          </button>
+        </div>
+      </div>
+      
+      {/* Daily Summary Card */}
+      <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700">
+        <h3 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">Summary for {selectedDate}</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center">
+          <MacroSummary value={totals.calories} label="Calories" color="text-blue-500" />
+          <MacroSummary value={totals.protein} label="Protein (g)" color="text-green-500" />
+          <MacroSummary value={totals.carbs} label="Carbs (g)" color="text-yellow-500" />
+          <MacroSummary value={totals.fat} label="Fat (g)" color="text-red-500" />
+        </div>
+      </div>
+
+      {/* Meal List */}
+      <div className="space-y-6">
+        {mealTypes.map(type => {
+          const mealsOfType = getMealsByType(type);
+          if (mealsOfType.length === 0) return null;
+          
+          // Calculate total calories for this meal type
+          const totalCals = mealsOfType.reduce((acc, m) => acc + m.calories, 0);
+
+          return (
+            <div key={type}>
+              <MealTypeHeader type={type} totalCalories={totalCals} />
+              <div className="space-y-3">
+                {mealsOfType.map(meal => (
+                  <MealCard 
+                    key={meal.id} 
+                    meal={meal} 
+                    onDelete={() => deleteMeal(meal.id)}
+                    onEdit={() => handleOpenEditModal(meal)} // <-- ADDED
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        {filteredMeals.length === 0 && (
+          <div className="text-center py-10">
+            <p className="text-gray-500 dark:text-gray-400">No meals logged for this day.</p>
+          </div>
+        )}
+      </div>
+      
+      {showModal && (
+        <AddMealModal 
+          mealToEdit={mealToEdit} // <-- PASS MEAL TO EDIT
+          onClose={() => setShowModal(false)} 
+          selectedDate={selectedDate} 
+        />
+      )}
+    </div>
+  );
+}
+
+// --- 5. LoginRegister Component ---
+function LoginRegister() {
+  const { handleLogin, handleRegister, handleForgotPassword, handleResetPassword, showNotification } = useContext(AppContext);
+  const { theme } = useContext(AppContext);
+  const [view, setView] = useState('login'); // 'login', 'register', 'forgotEmail', 'forgotReset'
+  const [form, setForm] = useState({
+    email: '', password: '', name: '', age: '', height: '', weight: '',
+    activityLevel: 'moderate', goal: 'maintain',
+    gender: 'female', // <-- ADDED GENDER
+    token: '', newPassword: ''
+  });
+  const [message, setMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [modalContent, setModalContent] = useState(null); // <-- ADDED THIS STATE
+
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+  
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      if (view === 'register') {
+        await handleRegister({
+          email: form.email,
+          password: form.password,
+          name: form.name,
+          age: form.age,
+          height: form.height,
+          weight: form.weight,
+          activityLevel: form.activityLevel,
+          goal: form.goal,
+          gender: form.gender, // <-- PASS GENDER
+        });
+        // On success, show notification and switch to login view
+        showNotification('Account created! Please log in.', 'success');
+        setView('login');
+        // Clear sensitive/register-specific fields, keep email
+        setForm(prev => ({ ...prev, password: '', name: '', age: '', height: '', weight: '', activityLevel: 'moderate', goal: 'maintain', gender: 'female' }));
+        setIsLoading(false); // Stop loading
+      } else if (view === 'login') {
+        await handleLogin(form.email, form.password);
+        // On success, component will unmount, no need to set loading false
+      }
+    } catch (error) {
+      console.error("Login/Register failed");
+      setIsLoading(false); // <-- FIX: Reset loading on error
+    }
+    // Don't reset loading on success, component will unmount
+  };
+
+  const onForgotPassword = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setMessage('');
+    try {
+      const res = await handleForgotPassword(form.email);
+      setMessage(res.message);
+      setView('forgotReset');
+    } catch (error) {
+      setMessage(error.message || 'An error occurred.');
+    } finally {
+      setIsLoading(false); // <-- FIX: Use finally to always reset loading
+    }
+  };
+
+  const onResetPassword = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setMessage('');
+    try {
+      const res = await handleResetPassword(form.email, form.token, form.newPassword);
+      setMessage(res.message);
+      setView('login');
+      setForm({ ...form, token: '', newPassword: '', password: '' });
+    } catch (error) {
+      setMessage(error.message || 'An error occurred.');
+    } finally {
+      setIsLoading(false); // <-- FIX: Use finally to always reset loading
+    }
+  };
+  
+  const GoogleIcon = () => (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05" />
+      <path d="M12 5.38c1.63 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+    </svg>
+  );
+
+  const renderView = () => {
+    switch(view) {
+      case 'login':
+        return (
+          <form onSubmit={handleSubmit} className="space-y-4 animate-fade-in">
+            <div className="text-center mb-4">
+              <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Login</h2>
+              <p className="text-gray-600 dark:text-gray-400">Welcome back! Please enter your details.</p>
+            </div>
+            <AppInput label="Email" name="email" icon={<Mail className="w-5 h-5" />} onChange={handleChange} value={form.email} placeholder="alex@example.com" type="email" required />
+            <AppInput label="Password" name="password" icon={<Lock className="w-5 h-5" />} onChange={handleChange} value={form.password} placeholder="••••••••" type="password" required isPassword />
+            <div className="text-right text-sm">
+              <button type="button" onClick={() => { setView('forgotEmail'); setMessage(''); }} className="font-medium text-blue-500 hover:underline">
+                Forgot password?
+              </button>
+            </div>
+            <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-semibold hover:from-blue-600 hover:to-blue-700 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5 disabled:opacity-50">
+              {isLoading ? 'Logging in...' : 'Login'}
+            </button>
+            
+            <div className="flex items-center gap-2 py-2">
+              <div className="flex-grow h-px bg-gray-200 dark:bg-gray-700"></div>
+              <span className="text-sm text-gray-500">OR</span>
+              <div className="flex-grow h-px bg-gray-200 dark:bg-gray-700"></div>
+            </div>
+
+            <button type="button" disabled={isLoading} className="w-full p-3 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-white rounded-lg font-semibold hover:bg-gray-50 dark:hover:bg-gray-600 shadow-md transition-all duration-300 transform hover:-translate-y-0.5 disabled:opacity-50 flex items-center justify-center gap-2">
+              <GoogleIcon />
+              Sign in with Google
+            </button>
+            
+            <p className="text-center text-sm text-gray-600 dark:text-gray-400">
+              Don't have an account?
+              <button type="button" onClick={() => { setView('register'); setMessage(''); }} className="font-medium text-blue-500 hover:underline ml-1">
+                Sign up
+              </button>
+            </p>
+          </form>
+        );
+      case 'register':
+        return (
+          <form onSubmit={handleSubmit} className="space-y-4 animate-fade-in">
+            <div className="text-center mb-4">
+              <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Create Account</h2>
+              <p className="text-gray-600 dark:text-gray-400">Please fill in the details to join.</p>
+            </div>
+            <AppInput label="Full Name" name="name" icon={<User className="w-5 h-5" />} onChange={handleChange} value={form.name} placeholder="Alex Johnson" required />
+            <AppInput label="Email" name="email" icon={<Mail className="w-5 h-5" />} onChange={handleChange} value={form.email} placeholder="alex@example.com" type="email" required />
+            <AppInput label="Password" name="password" icon={<Lock className="w-5 h-5" />} onChange={handleChange} value={form.password} placeholder="••••••••" type="password" required isPassword />
+            <div className="grid grid-cols-3 gap-4">
+              <AppInput label="Age" name="age" onChange={handleChange} value={form.age} placeholder="28" type="number" required noIcon />
+              <AppInput label="H (cm)" name="height" onChange={handleChange} value={form.height} placeholder="175" type="number" required noIcon />
+              <AppInput label="W (kg)" name="weight" onChange={handleChange} value={form.weight} placeholder="70" type="number" required noIcon />
+            </div>
+            {/* --- NEW GENDER FIELD --- */}
+            <AppSelect label="Gender" name="gender" onChange={handleChange} value={form.gender}>
+              <option value="female">Female</option>
+              <option value="male">Male</option>
+              <option value="other">Other / Prefer not to say</option>
+            </AppSelect>
+            <AppSelect label="Activity Level" name="activityLevel" onChange={handleChange} value={form.activityLevel}>
+              <option value="sedentary">Sedentary</option>
+              <option value="light">Light</option>
+              <option value="moderate">Moderate</option>
+              <option value="active">Active</option>
+            </AppSelect>
+            <AppSelect label="Goal" name="goal" onChange={handleChange} value={form.goal}>
+              <option value="lose">Lose Weight</option>
+              <option value="maintain">Maintain</option>
+              <option value="gain">Gain Weight</option>
+            </AppSelect>
+            <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-semibold hover:from-blue-600 hover:to-blue-700 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5 disabled:opacity-50">
+              {isLoading ? 'Creating Account...' : 'Create Account'}
+            </button>
+            <p className="text-center text-sm text-gray-600 dark:text-gray-400">
+              Already have an account?
+              <button type="button" onClick={() => { setView('login'); setMessage(''); }} className="font-medium text-blue-500 hover:underline ml-1">
+                Login
+              </button>
+            </p>
+          </form>
+        );
+      case 'forgotEmail':
+        return (
+          <form onSubmit={onForgotPassword} className="space-y-4 animate-fade-in">
+            <div className="text-center mb-4">
+              <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Reset Password</h2>
+              <p className="text-gray-600 dark:text-gray-400">Enter your email to receive a reset code.</p>
+            </div>
+            <AppInput label="Email" name="email" icon={<Mail className="w-5 h-5" />} onChange={handleChange} value={form.email} placeholder="alex@example.com" type="email" required />
+            {message && (
+               <p className={`text-sm ${message.includes('error') ? 'text-red-500' : 'text-green-500'}`}>{message}</p>
+            )}
+            <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-semibold hover:from-blue-600 hover:to-blue-700 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5 disabled:opacity-50">
+              {isLoading ? 'Sending...' : 'Send Reset Code'}
+            </button>
+            <p className="text-center text-sm text-gray-600 dark:text-gray-400">
+              Remembered your password?
+              <button type="button" onClick={() => { setView('login'); setMessage(''); }} className="font-medium text-blue-500 hover:underline ml-1">
+                Back to Login
+              </button>
+            </p>
+          </form>
+        );
+      case 'forgotReset':
+        return (
+          <form onSubmit={onResetPassword} className="space-y-4 animate-fade-in">
+            <div className="text-center mb-4">
+              <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Enter Your Code</h2>
+              <p className="text-gray-600 dark:text-gray-400">Check your email for a 6-digit code.</p>
+            </div>
+            <p className="text-sm text-center text-gray-600 dark:text-gray-400">
+              A 6-digit code was sent to {form.email}. Check your email (or the backend console!).
+            </p>
+            <AppInput label="6-Digit Code" name="token" icon={<Lock className="w-5 h-5" />} onChange={handleChange} value={form.token} placeholder="123456" type="text" required />
+            <AppInput label="New Password" name="newPassword" icon={<Lock className="w-5 h-5" />} onChange={handleChange} value={form.newPassword} placeholder="••••••••" type="password" required isPassword />
+
+            {message && (
+               <p className={`text-sm ${message.includes('error') ? 'text-red-500' : 'text-green-500'}`}>{message}</p>
+            )}
+            <button type="submit" disabled={isLoading} className="w-full p-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-semibold hover:from-blue-600 hover:to-blue-700 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5 disabled:opacity-50">
+              {isLoading ? 'Resetting...' : 'Set New Password'}
+            </button>
+            <p className="text-center text-sm text-gray-600 dark:text-gray-400">
+              <button type="button" onClick={() => { setView('login'); setMessage(''); }} className="font-medium text-blue-500 hover:underline ml-1">
+                Back to Login
+              </button>
+            </p>
+          </form>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-center min-h-screen p-4">
+      {/* Main Card: Narrow on mobile, wide on desktop */}
+      <div className="w-full max-w-md lg:max-w-4xl flex flex-col lg:flex-row rounded-2xl shadow-2xl overflow-hidden">
+        
+        {/* Left Branding Panel: Hidden on mobile */}
+        <div className="hidden lg:flex flex-col justify-center p-12 w-1/2 bg-gradient-to-br from-blue-600 to-blue-800 text-white">
+          <div className="flex items-center gap-3 mb-4 [text-shadow:0_2px_4px_rgba(0,0,0,0.3)]">
+            <Brain className="w-12 h-12" />
+            <span className="text-3xl font-bold">NutriPal AI</span>
+          </div>
+          <h2 className="text-2xl font-semibold mb-4 [text-shadow:0_1px_2px_rgba(0,0,0,0.2)]">
+            Track. Analyze. Achieve.
+          </h2>
+          <p className="text-blue-100 mb-8">
+            Your AI-powered nutrition partner.
+          </p>
+          <ul className="space-y-4">
+            <li className="flex items-center gap-3">
+              <CheckCircle className="w-5 h-5 text-green-300" />
+              <span>AI-Powered Coaching</span>
+            </li>
+            <li className="flex items-center gap-3">
+              <CheckCircle className="w-5 h-5 text-green-300" />
+              <span>Simple Meal Logging</span>
+            </li>
+            <li className="flex items-center gap-3">
+              <CheckCircle className="w-5 h-5 text-green-300" />
+              <span>Personalized Goals</span>
+            </li>
+          </ul>
+        </div>
+
+        {/* Right Form Panel: Full width on mobile, half on desktop */}
+        <div className="w-full lg:w-1/2 p-8 flex flex-col justify-center bg-white/70 dark:bg-gray-800/70 backdrop-blur-md">
+          {/* Mobile Header: Only shows on mobile */}
+          <div className="text-center mb-8 lg:hidden">
+            <Brain className="w-12 h-12 text-blue-500 mx-auto mb-4" />
+          </div>
+          
+              {/* Form rendering */}
+          <div className="w-full">
+            {renderView()}
+          </div>
+
+          {/* Footer */}
+          <div className="mt-8 text-center text-xs text-gray-500 dark:text-gray-400">
+            <p className="font-semibold">Powered by NutriPal AI</p>
+            <div className="mt-2 space-x-4">
+              <button type="button" onClick={() => setModalContent('terms')} className="hover:underline">Terms of Service</button>
+              <span>&bull;</span>
+              <button type="button" onClick={() => setModalContent('privacy')} className="hover:underline">Privacy Policy</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      
+      {/* --- MODAL RENDERING --- */}
+      {modalContent === 'terms' && (
+        <TextModal title="Terms of Service" onClose={() => setModalContent(null)}>
+          <TermsContent />
+        </TextModal>
+      )}
+      {modalContent === 'privacy' && (
+        <TextModal title="Privacy Policy" onClose={() => setModalContent(null)}>
+          <PrivacyContent />
+        </TextModal>
+      )}
+    </div>
+  );
+}
+
+// --- 6. Profile & Settings Component ---
+function ProfileSettings() {
+  const { user, goals, updateProfile, updateGoals, theme, setTheme, handleDeleteAccount } = useContext(AppContext);
+  const [profile, setProfile] = useState(user);
+  const [goalData, setGoalData] = useState(goals);
+  
+  // --- NEW: State for delete confirmation ---
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+
+  // Sync state if user prop changes
+  useEffect(() => {
+    setProfile(user);
+    setGoalData(goals);
+  }, [user, goals]);
+
+  const handleProfileChange = (e) => {
+    setProfile({ ...profile, [e.target.name]: e.target.value });
+  };
+
+  const handleGoalChange = (e) => {
+    setGoalData({ ...goalData, [e.target.name]: e.target.value });
+  };
+  
+  const handleProfileSave = () => {
+    updateProfile(profile);
+  };
+  
+  const handleGoalSave = () => {
+    updateGoals(goalData);
+  };
+
+  return (
+    <>
+      <div className="max-w-4xl mx-auto space-y-8 pb-16 lg:pb-0">
+        
+        <div className="p-6 bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 transition-shadow hover:shadow-lg">
+          <h3 className="text-3xl font-semibold tracking-tight mb-6 text-gray-900 dark:text-white">My Profile</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <AppInput label="Name" name="name" value={profile.name} onChange={handleProfileChange} noIcon={true} />
+            <AppInput label="Email" name="email" value={profile.email} onChange={handleProfileChange} type="email" noIcon={true} />
+            <AppInput label="Age" name="age" value={profile.age} onChange={handleProfileChange} type="number" noIcon={true} />
+            <AppInput label="Height (cm)" name="height" value={profile.height} onChange={handleProfileChange} type="number" noIcon={true} />
+            <AppInput label="Weight (kg)" name="weight" value={profile.weight} onChange={handleProfileChange} type="number" noIcon={true} />
+            {/* --- NEW GENDER FIELD --- */}
+            <AppSelect label="Gender" name="gender" value={profile.gender || 'female'} onChange={handleProfileChange}>
+              <option value="female">Female</option>
+              <option value="male">Male</option>
+              <option value="other">Other / Prefer not to say</option>
+            </AppSelect>
+            <AppSelect label="Activity Level" name="activityLevel" value={profile.activityLevel} onChange={handleProfileChange}>
+              <option value="sedentary">Sedentary</option>
+              <option value="light">Light Activity</option>
+              <option value="moderate">Moderate Activity</option>
+              <option value="active">Active</option>
+              <option value="very_active">Very Active</option>
+            </AppSelect>
+          </div>
+          <button onClick={handleProfileSave} className="mt-8 px-5 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-semibold hover:from-blue-600 hover:to-blue-700 shadow-md transition-all duration-300 transform hover:-translate-y-0.5">Save Profile</button>
+        </div>
+        
+        <div className="p-6 bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 transition-shadow hover:shadow-lg">
+          <h3 className="text-3xl font-semibold tracking-tight mb-4 text-gray-900 dark:text-white">My Goals</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-300 mb-6">You can manually adjust your nutrition goals here. Be careful, as these are normally auto-calculated.</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <AppInput label="Calories (kcal)" name="calories" value={goalData.calories} onChange={handleGoalChange} type="number" noIcon={true} />
+            <AppInput label="Protein (g)" name="protein" value={goalData.protein} onChange={handleGoalChange} type="number" noIcon={true} />
+            <AppInput label="Carbs (g)" name="carbs" value={goalData.carbs} onChange={handleGoalChange} type="number" noIcon={true} />
+            <AppInput label="Fat (g)" name="fat" value={goalData.fat} onChange={handleGoalChange} type="number" noIcon={true} />
+          </div>
+          <button onClick={handleGoalSave} className="mt-8 px-5 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-semibold hover:from-blue-600 hover:to-blue-700 shadow-md transition-all duration-3AF transform hover:-translate-y-0.5">Save Goals</button>
+        </div>
+        
+        <div className="p-6 bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 transition-shadow hover:shadow-lg">
+          <h3 className="text-3xl font-semibold tracking-tight mb-6 text-gray-900 dark:text-white">App Settings</h3>
+          <div className="flex items-center justify-between">
+            <span className="font-medium text-gray-700 dark:text-gray-200">Dark Mode</span>
+            <button 
+              onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} 
+              className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors ${theme === 'dark' ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+            >
+              <span
+                className={`inline-block w-4 h-4 transform transition-transform bg-white rounded-full ${theme === 'dark' ? 'translate-x-6' : 'translate-x-1'}`}
+              />
+            </button>
+          </div>
+        </div>
+        
+        {/* --- NEW: Danger Zone --- */}
+        <div className="p-6 bg-white dark:bg-gray-800 rounded-xl shadow-md border border-red-300 dark:border-red-700 transition-shadow hover:shadow-lg">
+          <h3 className="text-3xl font-semibold tracking-tight mb-4 text-red-600 dark:text-red-500">Danger Zone</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-300 mb-6">
+            This action is permanent and cannot be undone. This will delete your account and all associated data.
+          </p>
+          <button 
+            onClick={() => setShowDeleteModal(true)} 
+            className="px-5 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 shadow-md transition-all duration-300 transform hover:-translate-y-0.5"
+          >
+            Delete My Account
+          </button>
+        </div>
+      </div>
+      
+      {/* --- NEW: Delete Confirmation Modal --- */}
+      {showDeleteModal && (
+        <ConfirmationModal
+          title="Delete Account"
+          message="Are you absolutely sure? This will permanently delete your account, including all your logged meals and custom goals. This action cannot be undone."
+          confirmText="Yes, Delete My Account"
+          onConfirm={() => {
+            handleDeleteAccount();
+            setShowDeleteModal(false);
+          }}
+          onCancel={() => setShowDeleteModal(false)}
+        />
+      )}
+    </>
+  );
+}
+
+
+// --- PLACEHOLDER CONTENT FOR MODALS ---
+const TermsContent = () => (
+  <>
+    <h4 className="font-semibold text-lg text-gray-800 dark:text-white mb-2">1. Acceptance of Terms</h4>
+    <p>By accessing and using NutriPal AI ("the Service"), you accept and agree to be bound by the terms and provision of this agreement. If you do not agree to abide by these terms, please do not use the Service.</p>
+    
+    <h4 className="font-semibold text-lg text-gray-800 dark:text-white mt-4 mb-2">2. User Accounts</h4>
+    <p>You are responsible for maintaining the confidentiality of your account and password. You agree to accept responsibility for all activities that occur under your account or password.</p>
+    
+    <h4 className="font-semibold text-lg text-gray-800 dark:text-white mt-4 mb-2">3. Health Disclaimer</h4>
+    <p>The Service provides nutritional information and AI coaching for informational purposes only. It is not intended as a substitute for professional medical advice, diagnosis, or treatment. Always seek the advice of your physician or other qualified health provider with any questions you may have regarding a medical condition.</p>
+    
+    <h4 className="font-semibold text-lg text-gray-800 dark:text-white mt-4 mb-2">4. Termination</h4>
+    <p>We may terminate or suspend access to our Service immediately, without prior notice or liability, for any reason whatsoever, including without limitation if you breach the Terms.</p>
+    
+    <p className="mt-4">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+  </>
+);
+
+const PrivacyContent = () => (
+  <>
+    <h4 className="font-semibold text-lg text-gray-800 dark:text-white mb-2">1. Information We Collect</h4>
+    <p>We collect information you provide directly to us, such as when you create an account, log meals, or communicate with our AI coach. This includes:</p>
+    <ul className="list-disc list-inside ml-4 space-y-1">
+      <li>Personal details (name, email, age, height, weight, gender)</li>
+      <li>Health and nutrition goals</li>
+      <li>Meal and food logs (calories, macros, etc.)</li>
+      <li>Usage data and interactions with the Service</li>
+    </ul>
+    
+    <h4 className="font-semibold text-lg text-gray-800 dark:text-white mt-4 mb-2">2. How We Use Your Information</h4>
+    <p>We use the information we collect to:</p>
+    <ul className="list-disc list-inside ml-4 space-y-1">
+      <li>Provide, maintain, and improve the Service</li>
+      <li>Personalize your nutrition goals and AI coaching</li>
+      <li>Process transactions and send related information</li>
+      <li>Communicate with you about products, services, and updates</li>
+    </ul>
+    
+    <h4 className="font-semibold text-lg text-gray-800 dark:text-white mt-4 mb-2">3. Information Sharing</h4>
+    <p>We do not share your personal information with third parties except as described in this policy, such as with your consent or to comply with legal obligations. All AI interactions are processed securely and are not used to train third-party models on your personal data without your explicit consent.</p>
+    
+    <h4 className="font-semibold text-lg text-gray-800 dark:text-white mt-4 mb-2">4. Data Security</h4>
+    <p>We implement reasonable security measures to help protect your information from loss, theft, misuse, and unauthorized access. However, no electronic transmission or storage is 100% secure.</p>
+  </>
+);
+
+// --- Helper Components ---
+
+function BackgroundAnimation() {
+  const { theme } = useContext(AppContext);
+  const bgColor = theme === 'light' ? 'bg-gray-50' : 'bg-gray-900'; // Updated background
+
+  return (
+    <div className={`absolute inset-0 w-full h-full ${bgColor} overflow-hidden -z-10`}>
+      <div className="absolute inset-0 z-0 opacity-30 dark:opacity-20 filter blur-3xl">
+        <div className="absolute top-0 -left-1/4 w-96 h-96 bg-blue-200 dark:bg-blue-900 rounded-full animate-blob"></div>
+        <div className="absolute top-0 -right-1/4 w-96 h-96 bg-green-200 dark:bg-green-900 rounded-full animate-blob animation-delay-2000"></div>
+        <div className="absolute -bottom-1/4 left-1/3 w-96 h-96 bg-pink-200 dark:bg-pink-900 rounded-full animate-blob animation-delay-4000"></div>
+      </div>
+    </div>
+  );
+}
+
+// --- NEW MODAL COMPONENT ---
+function TextModal({ title, onClose, children }) {
+  return (
+    <div className="fixed inset-0 bg-black/30 dark:bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-lg w-full max-w-2xl h-[70vh] flex flex-col animate-slide-in"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex justify-between items-center p-4 border-b dark:border-gray-700">
+          <h3 className="text-xl font-semibold text-gray-900 dark:text-white">{title}</h3>
+          <button onClick={onClose} className="p-1 rounded-full text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-gray-400 dark:hover:text-white transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="flex-1 p-6 overflow-y-auto space-y-4 text-gray-600 dark:text-gray-300">
+          {children}
+        </div>
+        <div className="p-4 border-t dark:border-gray-700 text-right bg-gray-50 dark:bg-gray-800/50 rounded-b-xl">
+           <button 
+             onClick={onClose} 
+             className="px-5 py-2 bg-blue-500 text-white rounded-lg font-semibold hover:bg-blue-600 shadow transition-colors"
+           >
+             Close
+           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- NEW: Confirmation Modal ---
+function ConfirmationModal({ title, message, confirmText, onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onCancel}>
+      <div
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-lg w-full max-w-md animate-slide-in"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
+              <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-500" />
+            </div>
+            <div>
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white">{title}</h3>
+            </div>
+          </div>
+          <p className="mt-4 text-gray-600 dark:text-gray-300">
+            {message}
+          </p>
+        </div>
+        <div className="px-6 py-4 flex justify-end gap-3 bg-gray-50 dark:bg-gray-800/50 rounded-b-xl">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg font-semibold text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 shadow transition-colors"
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NotificationBanner({ message, type, onClose }) {
+  const colors = {
+    success: 'bg-green-500 border-green-600',
+    error: 'bg-red-500 border-red-600',
+    info: 'bg-blue-500 border-blue-600',
+  };
+  
+  const icons = {
+    success: <CheckCircle className="w-5 h-5" />,
+    error: <AlertTriangle className="w-5 h-5" />,
+    info: <Bell className="w-5 h-5" />,
+  }
+
+  const bgColor = colors[type] || 'bg-gray-900 border-gray-900';
+  const icon = icons[type] || null;
+  
+  return (
+    <div className={`fixed top-5 right-5 z-50 px-5 py-3 rounded-lg shadow-lg text-white ${bgColor} border-b-4 flex items-center gap-3 animate-slide-in`}>
+      {icon}
+      <p className="font-medium">{message}</p>
+      <button onClick={onClose} className="ml-auto -mr-2 p-1 rounded-full hover:bg-black/20 transition-colors"><X className="w-5 h-5" /></button>
+    </div>
+  );
+}
+
+function AppInput({ label, name, value, onChange, type = 'text', placeholder = '', required = false, icon, noIcon = false, isPassword = false }) {
+  const [showPassword, setShowPassword] = useState(false);
+  const internalType = isPassword ? (showPassword ? 'text' : 'password') : type;
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{label}</label>
+      <div className="relative">
+        {!noIcon && (
+          <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
+            {icon}
+          </span>
+        )}
+        <input
+          type={internalType}
+          name={name}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          required={required}
+          className={`w-full p-3 ${noIcon ? 'pr-3' : 'pl-11'} ${isPassword ? 'pr-11' : ''} border border-gray-300 dark:border-gray-500 rounded-lg bg-white/60 dark:bg-gray-900/40 focus:bg-white dark:focus:bg-gray-900/60 shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors`}
+        />
+        {isPassword && (
+          <button
+            type="button"
+            onClick={() => setShowPassword(!showPassword)}
+            className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          >
+            {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AppSelect({ label, name, value, onChange, children }) {
+   return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{label}</label>
+      <select
+        name={name}
+        value={value}
+        onChange={onChange}
+        className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg bg-white/60 dark:bg-gray-900/40 focus:bg-white dark:focus:bg-gray-900/60 shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+      >
+        {children}
+      </select>
+    </div>
+  );
+}
+
+function MacroProgressCard({ name, value, goal, icon: Icon, color, bg }) {
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    // Animate progress bar on load
+    const timer = setTimeout(() => {
+      const percentage = Math.min((value / goal) * 100, 100);
+      setProgress(percentage);
+    }, 300); // 300ms delay
+    return () => clearTimeout(timer);
+  }, [value, goal]);
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-1">
+        <div className={`flex items-center gap-2 font-semibold ${color}`}>
+          <Icon className="w-5 h-5" />
+          <span>{name}</span>
+        </div>
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{Math.round(value)}g / {goal}g</span>
+      </div>
+      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+        <div
+          className={`h-2 rounded-full ${bg} transition-all duration-1000 ease-out`}
+          style={{ width: `${progress}%` }}
+        ></div>
+      </div>
+    </div>
+  );
+}
+
+function QuickAddButton({ label, icon: Icon, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 flex flex-col items-center justify-center gap-2 border border-gray-200 dark:border-gray-600 transition-all transform hover:-translate-y-0.5"
+    >
+      <Icon className="w-5 h-5 text-blue-500" />
+      {label}
+    </button>
+  );
+}
+
+function RecentMealItem({ meal }) {
+  const icons = {
+    breakfast: <Sun className="w-5 h-5 text-yellow-500" />,
+    lunch: <CloudSun className="w-5 h-5 text-orange-500" />,
+    dinner: <Moon className="w-5 h-5 text-indigo-500" />,
+    snack: <Cookie className="w-5 h-5 text-amber-600" />,
+  }
+  
+  return (
+    <div className="flex items-center gap-3">
+       <div className="w-8 h-8 flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded-full">
+         {icons[meal.type] || <Utensils className="w-5 h-5 text-gray-500" />}
+       </div>
+       <div className="flex-1">
+         <p className="font-medium text-gray-800 dark:text-white">{meal.name}</p>
+         <p className="text-sm text-gray-500 dark:text-gray-400">{meal.calories} kcal</p>
+       </div>
+     </div>
+  )
+}
+
+function MacroSummary({ value, goal, label, color }) {
+  return (
+    <div className="p-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+      <span className={`text-xl font-bold ${color}`}>{Math.round(value)}</span>
+      <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{label}</p>
+    </div>
+  );
+}
+
+function MealTypeHeader({ type, totalCalories }) {
+  const icons = {
+    breakfast: <Sun className="w-5 h-5 text-yellow-500" />,
+    lunch: <CloudSun className="w-5 h-5 text-orange-500" />,
+    dinner: <Moon className="w-5 h-5 text-indigo-500" />,
+    snack: <Cookie className="w-5 h-5 text-amber-600" />,
+  }
+
+  return (
+    <div className="flex justify-between items-center mb-3">
+      <div className="flex items-center gap-2">
+        {icons[type] || <Utensils className="w-5 h-5 text-gray-500" />}
+        <h3 className="text-xl font-semibold capitalize text-gray-900 dark:text-white">{type}</h3>
+      </div>
+      <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">{totalCalories} kcal</span>
+    </div>
+  )
+}
+
+function MealCard({ meal, onDelete, onEdit }) {
+  const icons = {
+    breakfast: <Sun className="w-5 h-5 text-yellow-500" />,
+    lunch: <CloudSun className="w-5 h-5 text-orange-500" />,
+    dinner: <Moon className="w-5 h-5 text-indigo-500" />,
+    snack: <Cookie className="w-5 h-5 text-amber-600" />,
+  }
+
+  return (
+    <div className="flex items-center p-4 bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 transition-all duration-300 hover:shadow-lg">
+      <div className="w-10 h-10 flex-shrink-0 flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded-full mr-4">
+         {icons[meal.type] || <Utensils className="w-5 h-5 text-gray-500" />}
+       </div>
+      <div className="flex-1">
+        <h4 className="font-semibold text-gray-800 dark:text-white">{meal.name}</h4>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          {meal.calories} kcal &bull; {meal.protein}g P &bull; {meal.carbs}g C &bull; {meal.fat}g F
+        </p>
+      </div>
+      <button onClick={onEdit} className="ml-4 p-2 rounded-full text-gray-400 hover:text-blue-500 hover:bg-blue-100 dark:hover:text-blue-400 dark:hover:bg-gray-700 transition-colors">
+        <Edit className="w-5 h-5" />
+      </button>
+      <button onClick={onDelete} className="ml-2 p-2 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-100 dark:hover:text-red-400 dark:hover:bg-gray-700 transition-colors">
+        <Trash2 className="w-5 h-5" />
+      </button>
+    </div>
+  );
+}
+
+function AddMealModal({ onClose, selectedDate, mealToEdit }) {
+  const { addMeal, handleUpdateMeal } = useContext(AppContext);
+  
+  // --- NEW: Check if we are in "edit" mode ---
+  const isEditing = mealToEdit !== null;
+  
+  const [form, setForm] = useState({
+    name: mealToEdit?.name || '',
+    calories: mealToEdit?.calories || '',
+    protein: mealToEdit?.protein || '',
+    carbs: mealToEdit?.carbs || '',
+    fat: mealToEdit?.fat || '',
+    type: mealToEdit?.type || 'snack',
+  });
+
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const mealData = {
+      name: form.name,
+      calories: parseInt(form.calories) || 0,
+      protein: parseInt(form.protein) || 0,
+      carbs: parseInt(form.carbs) || 0,
+      fat: parseInt(form.fat) || 0,
+      type: form.type,
+      date: mealToEdit ? mealToEdit.date : new Date(selectedDate + "T00:00:00").toISOString() // Keep original date if editing
+    };
+    
+    if (isEditing) {
+      await handleUpdateMeal(mealToEdit.id, mealData);
+    } else {
+      await addMeal(mealData);
+    }
+    
+    onClose(); // Close modal on success
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/30 dark:bg-black/50 z-40 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-lg w-full max-w-lg p-6 space-y-4 animate-slide-in"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex justify-between items-center">
+          <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
+            {isEditing ? 'Edit Meal' : 'Add New Meal'}
+          </h3>
+          <button onClick={onClose} className="p-1 rounded-full text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-gray-400 dark:hover:text-white transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <AppInput label="Food Name" name="name" value={form.name} onChange={handleChange} placeholder="e.g., '2 Eggs and 1 Banana'" required noIcon />
+          
+          <div className="grid grid-cols-2 gap-4">
+            <AppInput label="Calories" name="calories" value={form.calories} onChange={handleChange} placeholder="e.g., 230" type="number" required noIcon />
+            <AppSelect label="Meal Type" name="type" value={form.type} onChange={handleChange}>
+              <option value="breakfast">Breakfast</option>
+              <option value="lunch">Lunch</option>
+              <option value="dinner">Dinner</option>
+              <option value="snack">Snack</option>
+            </AppSelect>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <AppInput label="Protein (g)" name="protein" value={form.protein} onChange={handleChange} placeholder="13" type="number" noIcon />
+            <AppInput label="Carbs (g)" name="carbs" value={form.carbs} onChange={handleChange} placeholder="28" type="number" noIcon />
+            <AppInput label="Fat (g)" name="fat" value={form.fat} onChange={handleChange} placeholder="10" type="number" noIcon />
+          </div>
+          
+          <button type="submit" className="w-full px-4 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-semibold hover:from-blue-600 hover:to-blue-700 shadow-md transition-all duration-300 transform hover:-translate-y-0.5">
+            {isEditing ? 'Save Changes' : 'Add Meal'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
